@@ -1,24 +1,45 @@
-# Wastebin Lite on Railway
+# Wastebin Lite
 
-A 20 MB single-binary pastebin, self-hosted on one small container. Wastebin is a fast Rust/Axum paste service with zero framework overhead and none of the Node.js weight — encrypted pastes, burn-after-reading, expirations, markdown rendering, QR codes, nine themes, and 170+ syntax-highlighted languages out of the box.
+A 20 MB single-binary pastebin. Fast, small, self-hostable on one container. Encrypted pastes, burn-after-reading, expirations, markdown rendering, QR codes, 9 themes, 170+ syntax-highlighted languages — built in Rust/Axum with no Node runtime.
 
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.com/deploy/fWTzpB)
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.com/deploy/wastebin-lite)
 
-## Features
+## Deploy and Host
 
-- **Tiny & fast** — single ~20 MB static binary (Rust/Axum), ~20 MB RAM at rest, no Node runtime
-- **Persistent** — SQLite on a Railway volume (`/data`), pastes survive redeploys and restarts
-- **Encrypted pastes** — ChaCha20-Poly1305 + argon2 password protection, for secrets and keys
-- **Burn after reading** — paste self-deletes after a one-time confirmation reveal
-- **Expirations** — no-expiry, 10 min, 1 h, 1 d, 1 M, 1 y (customizable per deploy)
-- **1 MB max body by default** — raise it for long logs; 170+ languages syntax-highlighted
-- **Markdown render** — `/md/{id}` with GitHub tables, task lists, and admonitions
-- **Raw view** — `/raw/{id}` for pipes, `curl`, and scripts
-- **QR code** — `/qr/{id}` shares a paste to a phone in one tap
-- **9 themes** — ayu, base16ocean, catppuccin, coldark, gruvbox, monokai, onehalf, rosepine, solarized
-- **Owner tokens** — every paste URL carries a signed delete token so you can kill your own pastes
-- **Keyboard-first UI** — `r` raw · `n` index · `y` copy URL · `c` copy content · `q` QR · `w` wrap · `m` markdown toggle · `?` keybindings
-- **API-first** — create and fetch pastes with pure `curl`, no browser needed
+One click. Railway provisions a single service with the `/data` volume, sets the two per-install secrets, and wires the public URL. Nothing to configure unless you want to change the theme or paste size limit.
+
+- **Runtime** — Rust (statically linked, scratch base). No Node.js, no Python, no JVM.
+- **Memory** — ~20 MB at rest. Fits on Railway Hobby.
+- **Port** — 8088 (baked into the Docker wrapper).
+- **Persistence** — SQLite on the `/data` volume. Pastes survive redeploys and restarts.
+- **Public URL** — `WASTEBIN_BASE_URL` is auto-filled from `RAILWAY_PUBLIC_DOMAIN` on every new deploy.
+
+## Why Deploy
+
+- **Sticky by design.** Once you start keeping logs, API responses, snippets, and secrets in one place, a second pastebin never gets installed.
+- **Encrypted by choice.** Password-protected pastes use ChaCha20-Poly1305 + argon2 — for keys, credentials, incident notes.
+- **Burn-after-reading built in.** A paste can self-destruct after a one-time confirmation reveal, so you can pass a secret URL to someone without leaving a trail.
+- **Tiny binary.** One ~20 MB static ELF. Deploys in seconds; restarts are instant.
+- **Keyboard-first UI.** `r` raw, `n` index, `y` copy URL, `c` copy content, `q` QR, `w` wrap, `m` markdown toggle, `?` all keybindings.
+- **API-first.** Every paste feature is reachable with pure `curl` — no browser required. Scripts and CI can share long outputs without a UI.
+
+## Common Use Cases
+
+- **Log capture & share** — pipe `journalctl`, `kubectl logs`, `tail -f`, or CI output into a paste and paste the URL next to the incident.
+- **Encrypted secret handoff** — paste a password or API key, share the URL privately, let the recipient use their own password header to unlock.
+- **Burn-after-reading** — share a token to a single person who must click through a confirm page exactly once; the paste is gone afterwards.
+- **Code / config snippet sharing** — syntax-highlighted paste, rendered markdown view, raw endpoint for pipelines.
+- **QR for mobile** — `/qr/{id}` prints a phone-scannable QR of the paste URL (convenient for logs you want to read on a phone).
+- **Expiring pastes** — 10 min, 1 h, 1 d, 1 M, 1 y options out of the box.
+- **Agent & bot log drop** — paste long tracebacks and logs for another service (or a human) to fetch.
+
+### Deployment Dependencies
+
+No external database, cache, or queue:
+
+- **Railway Hobby or above** — 1 GB RAM is plenty; the binary uses ~20 MB at rest.
+- **`/data` volume** — SQLite `state.db` lives here; the template attaches it automatically. Without it, pastes vanish on redeploy.
+- **No Postgres, no Redis, no external auth** — everything is embedded.
 
 ## Architecture
 
@@ -26,102 +47,118 @@ One service, one container, one volume:
 
 | Piece | Value |
 | :--- | :--- |
-| Container | `quxfoo/wastebin:3.7.1` (scratch base) + root wrapper (this repo) |
-| Port | 8088 (Railway reverse proxy + external healthcheck target `/`) |
-| Volume | `/data` → SQLite `state.db`, survives restarts |
-| Secrets | per-install `WASTEBIN_SIGNING_KEY` (≥ 64 bytes) + `WASTEBIN_PASSWORD_SALT` |
+| Container | `quxfoo/wastebin:3.7.1` (scratch base) + root wrapper in this repo |
+| Port | 8088 (baked into the Dockerfile; Railway reverse-proxy + external healthcheck target `/`) |
+| Volume | `/data` — mounted by Railway; SQLite `state.db` persists here |
+| Secrets | per-install `WASTEBIN_SIGNING_KEY` (>= 64 bytes) + `WASTEBIN_PASSWORD_SALT` (16 bytes) |
+| Domain | auto-generated by Railway; exposed at 8088 |
 
-The wrapper runs as **root** because Railway mounts its persistent volumes root-owned; `quxfoo/wastebin` ships as a non-root user and would otherwise crash-loop with `EACCES` writing `state.db`. The scratch base has no shell, so the healthcheck is Railway's external probe of `/` — there is no in-container `HEALTHCHECK` to write. The Dockerfile also pins `WASTEBIN_DATABASE_PATH=/data/state.db`; without it Wastebin writes the DB to the container's writable layer and every redeploy silently wipes all pastes.
+The wrapper runs as **root** because Railway mounts persistent volumes as root-owned; `quxfoo/wastebin` ships as a non-root user and would EACCES-crash-loop writing the database. The scratch base has no shell, so the healthcheck is Railway's external probe of `/` (there is no in-container `HEALTHCHECK` to write). The Dockerfile pins `WASTEBIN_DATABASE_PATH=/data/state.db`; without it, Wastebin writes the DB to the container's writable layer and every redeploy silently wipes all pastes.
 
-## Environment Variables
+## Features
+
+- **Encrypted pastes** — ChaCha20-Poly1305 + argon2 password protection.
+- **Burn-after-reading** — confirm once, reveal once, then 404.
+- **Expirations** — `0,10m,1h,1d,1M,1y` (configurable per deploy).
+- **1 MiB max body** — raise `WASTEBIN_MAX_BODY_SIZE` for long logs; 170+ languages highlighted.
+- **Markdown render** — `/md/{id}` with GitHub tables, task lists, admonitions.
+- **Raw view** — `/raw/{id}` for pipes, `curl`, CI scripts.
+- **QR code** — `/qr/{id}` for phone sharing.
+- **Theme picker** — 9 themes: ayu, base16ocean, catppuccin, coldark, gruvbox, monokai, onehalf, rosepine, solarized.
+- **Owner tokens** — every paste URL carries a signed delete token so the author can revoke it.
+- **Keyboard-first UI** — full keybinding layer in the browser.
+
+## Dependencies for Wastebin Lite
+
+- **Railway Hobby or above** — 1 GB RAM is plenty; the binary uses ~20 MB at rest.
+- **`/data` volume** — required for persistence. The template attaches it automatically.
+- **No external database, cache, or queue** — SQLite is embedded in the container.
+
+## About Hosting
+
+Wastebin Lite is a single container. Railway's reverse proxy terminates TLS at the edge and forwards plain HTTP to the container on port 8088; the external healthcheck targets `/`. The root wrapper exists solely to make the Railway volume mount writable by the Wastebin process — the binary itself is unchanged from the upstream `quxfoo/wastebin:3.7.1` image.
+
+## Configuration
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
-| `WASTEBIN_BASE_URL` | `${{RAILWAY_PUBLIC_DOMAIN}}` | Public base URL for the paste links shown in the UI / API. |
+| `WASTEBIN_BASE_URL` | `${{RAILWAY_PUBLIC_DOMAIN}}` | Public URL for the paste links in the UI and the API response. |
 | `WASTEBIN_TITLE` | `Wastebin Lite` | Site title in the browser tab. |
-| `WASTEBIN_THEME` | `catppuccin` | Default theme (see the 9 themes above). |
+| `WASTEBIN_THEME` | `catppuccin` | Default theme (see Features). |
 | `WASTEBIN_MAX_BODY_SIZE` | `1048576` | Max paste size in bytes (1 MiB). Raise for long logs. |
-| `WASTEBIN_PASTE_EXPIRATIONS` | `0,10m,1h,1d,1M,1y` | Expiry options in the UI (`0` = no expiry). |
-| `WASTEBIN_SIGNING_KEY` | `${{secret(64)}}` | **Required, ≥ 64 bytes** — the server refuses to boot with a shorter key. Signs owner/delete tokens. Auto-generated per install; changing it invalidates previously-issued owner tokens. |
-| `WASTEBIN_PASSWORD_SALT` | `${{secret(16)}}` | Argon2 salt for encrypted pastes. Auto-generated per install; changing it makes existing encrypted pastes unreadable. |
+| `WASTEBIN_PASTE_EXPIRATIONS` | `0,10m,1h,1d,1M,1y` | UI expiry options (`0` = no expiry). |
+| `WASTEBIN_SIGNING_KEY` | `${{secret(64)}}` | **Required, >= 64 bytes** — the server refuses to start on a shorter key. Signs owner/delete tokens. Auto-generated per install. |
+| `WASTEBIN_PASSWORD_SALT` | `${{secret(16)}}` | Argon2 salt used to derive the encryption password key. Auto-generated per install. |
 
-The two secrets are generated fresh for every new Railway deploy and are never stored in the repository.
-
-## Getting Started
+## How to Use
 
 ### 1. Deploy
 
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.com/deploy/fWTzpB)
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.com/deploy/wastebin-lite)
 
-The template creates one service with a `/data` volume. On first deploy it sets `WASTEBIN_SIGNING_KEY` and `WASTEBIN_PASSWORD_SALT` to fresh random values and wires `WASTEBIN_BASE_URL` to your public domain — no manual configuration needed.
+The template creates one service with the `/data` volume. On first deploy it sets the two per-install secrets and wires `WASTEBIN_BASE_URL` to your public domain — no manual configuration needed.
 
-### 2. Paste from the browser
+### 2. Paste in the browser
 
-Open `https://your-domain`, type or paste content, choose an expiry and (optionally) an extension and password, hit Enter. The UI is keyboard-driven: `r` raw, `n` index, `y` copy URL, `c` copy content, `q` QR, `w` wrap, `m` markdown toggle, `?` all keybindings.
+Open YOUR-DOMAIN, type or paste content, choose an expiry and (optionally) an extension and password, press Enter. Keyboard: `r` raw, `n` index, `y` copy URL, `c` copy content, `q` QR, `w` wrap, `m` markdown toggle, `?` all keybindings.
 
-### 3. Paste from the API
+### 3. Paste with the API
 
 ```bash
-# Plain paste (1 MiB max, .log extension, 1-day expiry)
+# Plain paste (1 MiB default, .log extension, 1-day expiry)
 curl -s -X POST -H "Content-Type: application/json" \
-  -d '{"text":"CPU 90%\nI/O 3%\nUptime 42d","extension":"log","title":"beszel-alert","expires":86400,"burn_after_reading":false}' \
-  https://your-domain/
-# -> {"path":"/Ibv9Fa.log","owner":"<signed-token>"}
+  -d '{"text":"CPU 90% I/O 3% Uptime 42d","extension":"log","expires":86400,"burn_after_reading":false}' \
+  https://YOUR-DOMAIN/
+# -> {"path":"/abcd-ef.log","owner":"SIGNED-OWNER-TOKEN"}
 
 # Raw content
-curl https://your-domain/raw/Ibv9Fa.log
+curl https://YOUR-DOMAIN/raw/abcd-ef.log
 
-# Encrypted paste (password-protected)
+# Encrypted paste
 curl -s -X POST -H "Content-Type: application/json" \
   -d '{"text":"secret-key-material","password":"mypass"}' \
-  https://your-domain/
-# Read it back with the password header:
-curl -H "wastebin-password: mypass" https://your-domain/raw/<id>
+  https://YOUR-DOMAIN/
+# Read back with the password header:
+curl -H "wastebin-password: mypass" https://YOUR-DOMAIN/raw/abcd-ef.log
 
 # Burn after reading
 curl -s -X POST -H "Content-Type: application/json" \
-  -d '{"text":"self-destructing","burn_after_reading":true}' https://your-domain/
-# The normal URL redirects to /burn/<id> (a one-time confirm interstitial);
-# confirming reveals the paste exactly once, then the paste is gone (404).
+  -d '{"text":"self-destructing","burn_after_reading":true}' \
+  https://YOUR-DOMAIN/
+# The normal URL redirects to /burn/abcd-ef — confirm once, then the paste 404s.
 ```
 
 Pipe anything in:
 
 ```bash
 journalctl -u systemd --since "1 hour ago" | curl -s --data-binary @- \
-  -H "Content-Type: text/plain" https://your-domain/
+  -H "Content-Type: text/plain" https://YOUR-DOMAIN/
 ```
 
-## API Endpoints
+### 4. Endpoints
 
 | Method | Path | Description |
 | :--- | :--- | :--- |
-| `POST` | `/` | Create a paste. JSON `{text, extension?, title?, expires?, password?, burn_after_reading?, owner?}` or a raw request body. Returns `{path, owner}`. |
-| `GET` | `/{id}` | HTML view. If the paste is burn-protected, redirects to `/burn/{id}`. |
+| `POST` | `/` | Create a paste. JSON or raw body. Returns `{path, owner}`. |
+| `GET` | `/{id}` | HTML view. Burn-protected pastes redirect to `/burn/{id}`. |
 | `GET` | `/raw/{id}` | Unprocessed paste body. |
-| `GET` | `/md/{id}` | Rendered markdown (tables, task lists, admonitions). |
-| `GET` | `/qr/{id}` | QR code for the paste URL. |
-| `GET` | `/burn/{id}` | One-time confirmation page for burn pastes. `POST confirm_burn=1` reveals and burns. |
-| `GET` | `/{id}?owner=<token>` | Owner handshake — signs the `uid` session cookie authorizing delete. **Both** `DELETE /{id}` and `POST /delete/{id}` read owner identity from this cookie (there is no form/body owner field). |
-| `DELETE` | `/{id}` | Delete the paste (requires the `uid` cookie from the handshake above). |
+| `GET` | `/md/{id}` | Rendered markdown view. |
+| `GET` | `/qr/{id}` | QR code of the paste URL. |
+| `GET` | `/burn/{id}` | One-time confirm interstitial for burn pastes. `POST confirm_burn=1` reveals and burns. |
+| `GET` | `/{id}?owner=SIGNED-OWNER-TOKEN` | Owner handshake — signs the `uid` session cookie authorizing delete. |
+| `DELETE` | `/{id}` | Delete the paste (requires the `uid` cookie from the handshake). |
 | `POST` | `/delete/{id}` | Browser-form delete (same `uid` cookie requirement). |
-| `GET` | `/theme` | Switch theme (`?pref=dark|light|auto`). |
-
-## Dependencies for Wastebin Lite
-
-- **Railway Hobby or above** — 1 GB RAM is plenty (~20 MB used at rest).
-- **`/data` volume** — the template attaches it automatically.
-- **No external services** — no database, no cache, no queue. SQLite is embedded.
+| `GET` | `/theme` | Switch theme (query `pref=DARK|LIGHT|AUTO`). |
 
 ## Troubleshooting
 
-- **Container crash-loops on a fresh install** — confirm `WASTEBIN_SIGNING_KEY` is ≥ 64 bytes (the server refuses to start on a shorter key); the template's `${{secret(64)}}` value satisfies this.
+- **Container crash-loops on a fresh install** — confirm `WASTEBIN_SIGNING_KEY` is >= 64 bytes (the server refuses to start on a shorter key). The `${{secret(64)}}` value satisfies this.
 - **Pastes vanish after a redeploy** — `WASTEBIN_DATABASE_PATH` must point at the volume (`/data/state.db`, baked into the Dockerfile) and the `/data` volume must be attached to the service.
 - **Encrypted pastes unreadable after a redeploy** — `WASTEBIN_PASSWORD_SALT` changed between deploys; regenerate the paste or pin a stable salt value.
-- **Owner token 403 / paste not deleted** — the token contains base64 `+` and `/`; when passing it as a query parameter URL-encode it, and always perform the `GET /{id}?owner=<token>` handshake before the `DELETE`.
+- **Owner token 403 / paste not deleted** — the token contains base64 `+` and `/`; when passing it as a query parameter, URL-encode it, and always perform the `GET /{id}?owner=SIGNED-OWNER-TOKEN` handshake before the `DELETE` or `POST /delete/{id}`.
 - **Paste too large** — bump `WASTEBIN_MAX_BODY_SIZE` (bytes) and redeploy.
-- **Port / health** — the container listens on `0.0.0.0:8088` (baked in); the external healthcheck targets `/`.
+- **Port / health** — the container listens on `0.0.0.0:8088` (baked into the Dockerfile); the external healthcheck targets `/`.
 
 ## License
 
-Upstream [Wastebin](https://github.com/matze/wastebin) is MIT-licensed. This template's Dockerfile and config are provided as-is.
+Upstream [Wastebin](https://github.com/matze/wastebin) is MIT-licensed. This template's wrapper Dockerfile and config are provided as-is.

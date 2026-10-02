@@ -2,7 +2,7 @@
 
 A 20 MB single-binary pastebin, self-hosted on one small container. Wastebin is a fast Rust/Axum paste service with zero framework overhead and none of the Node.js weight — encrypted pastes, burn-after-reading, expirations, markdown rendering, QR codes, nine themes, and 170+ syntax-highlighted languages out of the box.
 
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.com/new/template/wastebin-lite)
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.com/deploy/fWTzpB)
 
 ## Features
 
@@ -51,7 +51,7 @@ The two secrets are generated fresh for every new Railway deploy and are never s
 
 ### 1. Deploy
 
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.com/new/template/wastebin-lite)
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.com/deploy/fWTzpB)
 
 The template creates one service with a `/data` volume. On first deploy it sets `WASTEBIN_SIGNING_KEY` and `WASTEBIN_PASSWORD_SALT` to fresh random values and wires `WASTEBIN_BASE_URL` to your public domain — no manual configuration needed.
 
@@ -102,9 +102,9 @@ journalctl -u systemd --since "1 hour ago" | curl -s --data-binary @- \
 | `GET` | `/md/{id}` | Rendered markdown (tables, task lists, admonitions). |
 | `GET` | `/qr/{id}` | QR code for the paste URL. |
 | `GET` | `/burn/{id}` | One-time confirmation page for burn pastes. `POST confirm_burn=1` reveals and burns. |
-| `GET` | `/{id}?owner=<token>` | Owner handshake — sets the delete authorization cookie. |
-| `DELETE` | `/{id}` | Delete the paste (requires the `/{id}?owner=<token>` cookie above). |
-| `POST` | `/delete/{id}` | Form-based delete (browser flow). |
+| `GET` | `/{id}?owner=<token>` | Owner handshake — signs the `uid` session cookie authorizing delete. **Both** `DELETE /{id}` and `POST /delete/{id}` read owner identity from this cookie (there is no form/body owner field). |
+| `DELETE` | `/{id}` | Delete the paste (requires the `uid` cookie from the handshake above). |
+| `POST` | `/delete/{id}` | Browser-form delete (same `uid` cookie requirement). |
 | `GET` | `/theme` | Switch theme (`?pref=dark|light|auto`). |
 
 ## Dependencies for Wastebin Lite

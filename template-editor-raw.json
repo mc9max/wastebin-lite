@@ -1,0 +1,30 @@
+{
+  "WASTEBIN_BASE_URL": {
+    "value": "${{RAILWAY_PUBLIC_DOMAIN}}",
+    "description": "Full public base URL used for paste links shown in the UI (https://your-domain). Auto-filled from the public domain."
+  },
+  "WASTEBIN_TITLE": {
+    "value": "Wastebin Lite",
+    "description": "Site title shown in the browser tab and headers."
+  },
+  "WASTEBIN_THEME": {
+    "value": "catppuccin",
+    "description": "Default UI theme. One of: ayu, base16ocean, catppuccin, coldark, gruvbox, monokai, onehalf, rosepine, solarized."
+  },
+  "WASTEBIN_MAX_BODY_SIZE": {
+    "value": "1048576",
+    "description": "Maximum paste size in bytes (default 1 MiB). Raise for long logs, e.g. 5242880 for 5 MiB."
+  },
+  "WASTEBIN_PASTE_EXPIRATIONS": {
+    "value": "0,10m,1h,1d,1M,1y",
+    "description": "Expiry options offered in the UI, comma-separated. '0' means no-expiry; durations: 10m, 1h, 1d, 1M, 1y."
+  },
+  "WASTEBIN_SIGNING_KEY": {
+    "value": "${{secret(64)}}",
+    "description": "Key for signing delete/owner tokens (must be >= 64 bytes — the server refuses to start otherwise). Auto-generated on first deploy; do not change on existing installs or owner tokens stop working."
+  },
+  "WASTEBIN_PASSWORD_SALT": {
+    "value": "${{secret(16)}}",
+    "description": "Random salt used for encrypting password-protected pastes (argon2). Auto-generated on first deploy."
+  }
+}
